@@ -219,7 +219,7 @@ public sealed class Main : MonoBehaviour
 
     async ValueTask RecordThenAnalyzeAsync(AudioClip clip, CancellationToken cancellationToken = default)
     {
-        Debug.LogFormat("{0}: {1}", nameof(RecordThenAnalyzeAsync), new { clip.length });
+        Debug.LogFormat("{0}: {1}", nameof(RecordThenAnalyzeAsync), new { clip.length, clip.samples, clip.frequency, clip.channels });
         try
         {
             _status += "(開始分析 ...)" + Environment.NewLine;
@@ -238,7 +238,11 @@ public sealed class Main : MonoBehaviour
             }
 
             var api = new MicrosoftSpeechToText(_ApiOptions);
-            await foreach (var result in api.AnalyzeAsync(stream, cancellationToken))
+            var format = AudioStreamFormat.GetWaveFormatPCM(
+                samplesPerSecond: (uint)clip.frequency,
+                bitsPerSample: 16, // TODO: 需要調查有無確切算法
+                channels: (byte)clip.channels);
+            await foreach (var result in api.AnalyzeAsync(stream, format, cancellationToken))
                 _status += result + Environment.NewLine;
             _status += "(完成分析)" + Environment.NewLine;
         }
@@ -273,7 +277,7 @@ public sealed class Main : MonoBehaviour
                 throw new Exception("data fault");
             var stream = new MemoryStream(data);
             var api = new MicrosoftSpeechToText(_ApiOptions);
-            await foreach (var result in api.AnalyzeAsync(stream, cancellationToken))
+            await foreach (var result in api.AnalyzeAsync(stream, cancellationToken: cancellationToken))
                 _status += result + Environment.NewLine;
             _status += "(完成測試分析)" + Environment.NewLine;
         }
@@ -321,11 +325,12 @@ public sealed class MicrosoftSpeechToText
 
     public async IAsyncEnumerable<string> AnalyzeAsync(
         Stream stream,
+        AudioStreamFormat format = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         Debug.Log(nameof(AnalyzeAsync));
 
-        using var pushAudioStream = AudioInputStream.CreatePushStream();
+        using var pushAudioStream = format == null ? AudioInputStream.CreatePushStream() : AudioInputStream.CreatePushStream(format);
         var analyze = AnalyzeAsync(pushAudioStream, cancellationToken);
         _ = WriteToAsync(stream, pushAudioStream, cancellationToken);
 
