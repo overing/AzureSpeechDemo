@@ -13,7 +13,10 @@ using UnityEngine.Networking;
 public sealed class Main : MonoBehaviour
 {
     [SerializeField]
-    MicrosoftSpeechToTextOptions _options;
+    MicrosoftSpeechToTextOptions _ApiOptions;
+
+    [SerializeField]
+    ClipProcessOptions _ClipOptions;
 
     bool _guiInitialized;
     string _status;
@@ -24,7 +27,7 @@ public sealed class Main : MonoBehaviour
     float _recordBeginTime;
     Task _analyzeTask;
 
-    void Start() => JsonUtility.FromJsonOverwrite(PlayerPrefs.GetString(nameof(_options), "{}"), _options);
+    void Start() => LoadPrefs();
 
     void OnGUI()
     {
@@ -33,8 +36,19 @@ public sealed class Main : MonoBehaviour
             var side = Screen.width;
             GUI.skin.button.fontSize = side / 22;
             GUI.skin.textField.fontSize = side / 22;
+            GUI.skin.box.fontSize = side / 20;
             GUI.skin.label.fontSize = side / 20;
             GUI.skin.toggle.fontSize = side / 20;
+            GUI.skin.toggle.border = new RectOffset(0, 0, 0, 0);
+            GUI.skin.toggle.overflow = new RectOffset(0, 0, 0, 0);
+            GUI.skin.toggle.imagePosition = ImagePosition.ImageOnly;
+            GUI.skin.toggle.padding.right = 0;
+            GUI.skin.toggle.padding.bottom = 0;
+            GUI.skin.toggle.padding.left = side / 20;
+            GUI.skin.toggle.padding.top = side / 20;
+            GUI.skin.horizontalSlider.fixedHeight = side / 22;
+            GUI.skin.horizontalSliderThumb.fixedWidth = side / 20;
+            GUI.skin.horizontalSliderThumb.fixedHeight = side / 20;
             _guiInitialized = true;
         }
 
@@ -49,22 +63,45 @@ public sealed class Main : MonoBehaviour
             }
             if (_drawConfig)
             {
-                using (new GUILayout.HorizontalScope())
+                using (new GUILayout.VerticalScope("Clip 選項", GUI.skin.box))
                 {
-                    GUILayout.Label("Region: ", GUILayout.ExpandWidth(false));
-                    _options.Region = GUILayout.TextField(_options.Region, GUILayout.ExpandWidth(true));
+                    GUILayout.Space(GUI.skin.box.fontSize);
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("儲存錄音: ", GUILayout.ExpandWidth(false));
+                        _ClipOptions.SaveWav = GUILayout.Toggle(_ClipOptions.SaveWav, string.Empty, GUILayout.ExpandWidth(false));
+                    }
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("錄音音量: x" + _ClipOptions.AmplifyVolumeRatio.ToString("N1"), GUILayout.ExpandWidth(false));
+                        _ClipOptions.AmplifyVolumeRatio = GUILayout.HorizontalSlider(_ClipOptions.AmplifyVolumeRatio, 1, 10, GUILayout.ExpandWidth(true));
+                    }
                 }
-                using (new GUILayout.HorizontalScope())
+                using (new GUILayout.VerticalScope("API 選項", GUI.skin.box))
                 {
-                    GUILayout.Label("Language: ", GUILayout.ExpandWidth(false));
-                    _options.Language = GUILayout.TextField(_options.Language, GUILayout.ExpandWidth(true));
+                    GUILayout.Space(GUI.skin.box.fontSize);
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("LOG: ", GUILayout.ExpandWidth(false));
+                        _ApiOptions.LogProcess = GUILayout.Toggle(_ApiOptions.LogProcess, string.Empty, GUILayout.ExpandWidth(false));
+                    }
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("區域: ", GUILayout.ExpandWidth(false));
+                        _ApiOptions.Region = GUILayout.TextField(_ApiOptions.Region, GUILayout.ExpandWidth(true));
+                    }
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("語言: ", GUILayout.ExpandWidth(false));
+                        _ApiOptions.Language = GUILayout.TextField(_ApiOptions.Language, GUILayout.ExpandWidth(true));
+                    }
+                    using (new GUILayout.HorizontalScope())
+                    {
+                        GUILayout.Label("金鑰: ", GUILayout.ExpandWidth(false));
+                        _ApiOptions.SubscriptionKey = GUILayout.TextField(_ApiOptions.SubscriptionKey, GUILayout.ExpandWidth(true));
+                    }
+                    pressGotoAiStt = GUILayout.Button("取得金鑰 (Azure Speech Service)");
                 }
-                using (new GUILayout.HorizontalScope())
-                {
-                    GUILayout.Label("Key: ", GUILayout.ExpandWidth(false));
-                    _options.SubscriptionKey = GUILayout.TextField(_options.SubscriptionKey, GUILayout.ExpandWidth(true));
-                }
-                pressGotoAiStt = GUILayout.Button("取得金鑰 (Azure Speech Service)");
                 using (new GUILayout.HorizontalScope())
                 {
                     pressCancel = GUILayout.Button("取消");
@@ -75,7 +112,7 @@ public sealed class Main : MonoBehaviour
             {
                 using (new GUILayout.HorizontalScope())
                 {
-                    if (string.IsNullOrEmpty(_options.SubscriptionKey))
+                    if (string.IsNullOrEmpty(_ApiOptions.SubscriptionKey))
                     {
                         if (string.IsNullOrWhiteSpace(_status))
                             _status = "未設定訂閱金鑰" + Environment.NewLine;
@@ -111,7 +148,7 @@ public sealed class Main : MonoBehaviour
             if (_recordClip == null)
             {
                 _status += "(開始錄製 ...)" + Environment.NewLine;
-                _recordClip = Microphone.Start(deviceName: null, loop: true, lengthSec: 3599, frequency: AudioSettings.outputSampleRate);
+                _recordClip = Microphone.Start(deviceName: null, loop: true, lengthSec: 3599, frequency: 44100);
                 _recordBeginTime = Time.realtimeSinceStartup;
             }
         }
@@ -124,7 +161,7 @@ public sealed class Main : MonoBehaviour
                 AudioClip clip = null;
                 try
                 {
-                    clip = _recordClip.Clip(duration);
+                    clip = _recordClip.Clip(duration, _ClipOptions.AmplifyVolumeRatio);
                 }
                 catch (Exception ex)
                 {
@@ -155,7 +192,7 @@ public sealed class Main : MonoBehaviour
 
         if (pressCancel)
         {
-            JsonUtility.FromJsonOverwrite(PlayerPrefs.GetString(nameof(_options), "{}"), _options);
+            LoadPrefs();
             _drawConfig = false;
         }
 
@@ -164,9 +201,21 @@ public sealed class Main : MonoBehaviour
 
         if (pressApply)
         {
-            PlayerPrefs.SetString(nameof(_options), JsonUtility.ToJson(_options));
+            SavePrefs();
             _drawConfig = false;
         }
+    }
+
+    void LoadPrefs()
+    {
+        JsonUtility.FromJsonOverwrite(PlayerPrefs.GetString(nameof(_ApiOptions), "{}"), _ApiOptions);
+        JsonUtility.FromJsonOverwrite(PlayerPrefs.GetString(nameof(_ClipOptions), "{}"), _ClipOptions);
+    }
+
+    void SavePrefs()
+    {
+        PlayerPrefs.SetString(nameof(_ClipOptions), JsonUtility.ToJson(_ClipOptions));
+        PlayerPrefs.SetString(nameof(_ApiOptions), JsonUtility.ToJson(_ApiOptions));
     }
 
     async ValueTask RecordThenAnalyzeAsync(AudioClip clip, CancellationToken cancellationToken = default)
@@ -176,16 +225,19 @@ public sealed class Main : MonoBehaviour
             _status += "(開始分析 ...)" + Environment.NewLine;
             var stream = clip.ToWavStream();
 
-            var fileName = Application.persistentDataPath + $"/{DateTime.Now:yyyyMMdd_HHmmss}.wav";
-            using (var output = File.OpenWrite(fileName))
+            if (_ClipOptions.SaveWav)
             {
-                await stream.CopyToAsync(output);
-                await output.FlushAsync();
+                var fileName = Application.persistentDataPath + $"/{DateTime.Now:yyMMddHHmmss}.wav";
+                using (var output = File.OpenWrite(fileName))
+                {
+                    await stream.CopyToAsync(output);
+                    await output.FlushAsync();
+                }
+                stream.Position = 0;
+                _status += "存檔: " + fileName + Environment.NewLine;
             }
-            stream.Position = 0;
-            _status += "local: " + fileName + Environment.NewLine;
 
-            var api = new MicrosoftSpeechToText(_options);
+            var api = new MicrosoftSpeechToText(_ApiOptions);
             await foreach (var result in api.AnalyzeAsync(stream, cancellationToken))
                 _status += result + Environment.NewLine;
             _status += "(完成分析)" + Environment.NewLine;
@@ -220,7 +272,7 @@ public sealed class Main : MonoBehaviour
             if (data == null || data.Length == 0)
                 throw new Exception("data fault");
             var stream = new MemoryStream(data);
-            var api = new MicrosoftSpeechToText(_options);
+            var api = new MicrosoftSpeechToText(_ApiOptions);
             await foreach (var result in api.AnalyzeAsync(stream, cancellationToken))
                 _status += result + Environment.NewLine;
             _status += "(完成測試分析)" + Environment.NewLine;
@@ -235,8 +287,21 @@ public sealed class Main : MonoBehaviour
 }
 
 [Serializable]
+public sealed class ClipProcessOptions
+{
+    [field: SerializeField]
+    public bool SaveWav { get; set; }
+
+    [field: SerializeField]
+    public float AmplifyVolumeRatio { get; set; } = 3;
+}
+
+[Serializable]
 public sealed class MicrosoftSpeechToTextOptions
 {
+    [field: SerializeField]
+    public bool LogProcess { get; set; }
+
     [field: SerializeField]
     public string Language { get; set; } = "zh-TW";
 
@@ -292,9 +357,11 @@ public sealed class MicrosoftSpeechToText
 
         var speechConfig = SpeechConfig.FromSubscription(_options.SubscriptionKey, _options.Region);
         speechConfig.OutputFormat = OutputFormat.Detailed;
-        // speechConfig.SetProperty(PropertyId.Speech_LogFilename, "D:/speech.log");
+        if (_options.LogProcess)
+            speechConfig.SetProperty(PropertyId.Speech_LogFilename, Application.persistentDataPath + "/speech.log");
         using var audioConfig = AudioConfig.FromStreamInput(audioStream);
-        // audioConfig.SetProperty(PropertyId.Speech_LogFilename, "D:/audio.log");
+        if (_options.LogProcess)
+            audioConfig.SetProperty(PropertyId.Speech_LogFilename, Application.persistentDataPath + "/audio.log");
         using var recognizer = new SpeechRecognizer(speechConfig, _options.Language, audioConfig);
 
         while (!cancellationToken.IsCancellationRequested)
@@ -340,17 +407,23 @@ public sealed class MicrosoftSpeechToText
 
 public static class AudioClipUtility
 {
-    public static AudioClip Clip(this AudioClip originalClip, float maxTime)
+    public static AudioClip Clip(this AudioClip clip, float maxTime, float amplify = 1)
     {
-        var newLength = Mathf.FloorToInt(maxTime * originalClip.frequency);
+        var newLength = Mathf.FloorToInt(maxTime * clip.frequency);
         var trimmedSamples = new float[newLength];
 
-        originalClip.GetData(trimmedSamples, 0);
+        clip.GetData(trimmedSamples, 0);
 
-        var trimmedAudioClip = AudioClip.Create("TrimmedAudio", newLength, originalClip.channels, originalClip.frequency, false);
-        trimmedAudioClip.SetData(trimmedSamples, 0);
+        if (amplify != 1)
+        {
+            for (var i = 0; i <= newLength; i++)
+                trimmedSamples[i] *= amplify;
+        }
 
-        return trimmedAudioClip;
+        var trimmedClip = AudioClip.Create("Trimmed", newLength, clip.channels, clip.frequency, stream: false);
+        trimmedClip.SetData(trimmedSamples, 0);
+
+        return trimmedClip;
     }
 
     public static MemoryStream ToWavStream(this AudioClip clip)
