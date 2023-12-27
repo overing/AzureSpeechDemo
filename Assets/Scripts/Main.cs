@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -148,7 +147,7 @@ public sealed class Main : MonoBehaviour
             if (_recordClip == null)
             {
                 _status += "(開始錄製 ...)" + Environment.NewLine;
-                _recordClip = Microphone.Start(deviceName: null, loop: true, lengthSec: 3599, frequency: 44100);
+                _recordClip = Microphone.Start(deviceName: null, loop: true, lengthSec: 3599, frequency: AudioSettings.outputSampleRate);
                 _recordBeginTime = Time.realtimeSinceStartup;
             }
         }
@@ -220,6 +219,7 @@ public sealed class Main : MonoBehaviour
 
     async ValueTask RecordThenAnalyzeAsync(AudioClip clip, CancellationToken cancellationToken = default)
     {
+        Debug.LogFormat("{0}: {1}", nameof(RecordThenAnalyzeAsync), new { clip.length });
         try
         {
             _status += "(開始分析 ...)" + Environment.NewLine;
@@ -325,7 +325,7 @@ public sealed class MicrosoftSpeechToText
     {
         Debug.Log(nameof(AnalyzeAsync));
 
-        using var pushAudioStream = PushAudioInputStream.CreatePushStream();
+        using var pushAudioStream = AudioInputStream.CreatePushStream();
         var analyze = AnalyzeAsync(pushAudioStream, cancellationToken);
         _ = WriteToAsync(stream, pushAudioStream, cancellationToken);
 
@@ -416,7 +416,7 @@ public static class AudioClipUtility
 
         if (amplify != 1)
         {
-            for (var i = 0; i <= newLength; i++)
+            for (var i = 0; i < newLength; i++)
                 trimmedSamples[i] *= amplify;
         }
 
