@@ -121,11 +121,23 @@ public sealed class Main : MonoBehaviour
             {
                 var duration = Time.realtimeSinceStartup - _recordBeginTime;
                 Microphone.End(deviceName: null);
-                var clip = _recordClip.Clip(duration);
+                AudioClip clip = null;
+                try
+                {
+                    clip = _recordClip.Clip(duration);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError(ex.Message);
+                    Debug.LogException(ex);
+                    _status += "錯誤: " + ex.Message + Environment.NewLine;
+                }
                 Destroy(_recordClip);
                 _recordClip = null;
                 _recordBeginTime = 0;
-                _analyzeTask = RecordThenAnalyzeAsync(clip).AsTask();
+
+                if (clip != null)
+                    _analyzeTask = RecordThenAnalyzeAsync(clip).AsTask();
             }
         }
 
@@ -163,6 +175,16 @@ public sealed class Main : MonoBehaviour
         {
             _status += "(開始分析 ...)" + Environment.NewLine;
             var stream = clip.ToWavStream();
+
+            var fileName = Application.persistentDataPath + $"/{DateTime.Now:yyyyMMdd_HHmmss}.wav";
+            using (var output = File.OpenWrite(fileName))
+            {
+                await stream.CopyToAsync(output);
+                await output.FlushAsync();
+            }
+            stream.Position = 0;
+            _status += "local: " + fileName + Environment.NewLine;
+
             var api = new MicrosoftSpeechToText(_options);
             await foreach (var result in api.AnalyzeAsync(stream, cancellationToken))
                 _status += result + Environment.NewLine;
@@ -170,9 +192,9 @@ public sealed class Main : MonoBehaviour
         }
         catch (Exception ex)
         {
-            _status += "錯誤: " + ex.Message + Environment.NewLine;
             Debug.LogError(ex.Message);
             Debug.LogException(ex);
+            _status += "錯誤: " + ex.Message + Environment.NewLine;
         }
     }
 
@@ -205,9 +227,9 @@ public sealed class Main : MonoBehaviour
         }
         catch (Exception ex)
         {
-            _status += "錯誤: " + ex.Message + Environment.NewLine;
             Debug.LogError(ex.Message);
             Debug.LogException(ex);
+            _status += "錯誤: " + ex.Message + Environment.NewLine;
         }
     }
 }
@@ -318,36 +340,17 @@ public sealed class MicrosoftSpeechToText
 
 public static class AudioClipUtility
 {
-    public static AudioClip Clip(this AudioClip clip, float maxTime)
+    public static AudioClip Clip(this AudioClip originalClip, float maxTime)
     {
-        int originalSamples = clip.samples;
-        float originalDuration = originalSamples / (float)clip.frequency;
+        var newLength = Mathf.FloorToInt(maxTime * originalClip.frequency);
+        var trimmedSamples = new float[newLength];
 
-        if (originalDuration > maxTime)
-        {
-            var newSamples = Mathf.FloorToInt(maxTime * clip.frequency);
+        originalClip.GetData(trimmedSamples, 0);
 
-            var newClip = AudioClip.Create("Clipped", newSamples, clip.channels, clip.frequency, stream: false);
+        var trimmedAudioClip = AudioClip.Create("TrimmedAudio", newLength, originalClip.channels, originalClip.frequency, false);
+        trimmedAudioClip.SetData(trimmedSamples, 0);
 
-            var ratio = (float)newSamples / (float)originalSamples;
-
-            var samples = new float[clip.samples * clip.channels];
-            clip.GetData(samples, 0);
-
-            var resampledData = new float[newSamples];
-
-            for (int i = 0; i < newSamples; i++)
-            {
-                int originalIndex = Mathf.FloorToInt(i / ratio);
-                resampledData[i] = samples[originalIndex];
-            }
-
-            newClip.SetData(resampledData, 0);
-
-            return newClip;
-        }
-
-        return clip;
+        return trimmedAudioClip;
     }
 
     public static MemoryStream ToWavStream(this AudioClip clip)
